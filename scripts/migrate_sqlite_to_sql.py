@@ -9,7 +9,7 @@ data.
 
 Usage:
     python scripts/migrate_sqlite_to_sql.py \
-        --target "postgresql+asyncpg://agentscope:agentscope-local@localhost:5432/agentscope"
+        --target "postgresql+asyncpg://<user>:<password>@<host>:5432/<db>"
 """
 import argparse
 import asyncio
@@ -19,6 +19,14 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 # Internal bookkeeping table — not business data.
 _SKIPPED_TABLES = {"alembic_version"}
+
+_DEFAULT_SOURCE_URL = (
+    "sqlite+aiosqlite:///examples/agent_service/workspaces/agentscope.db"
+)
+_TARGET_EXAMPLE = (
+    "postgresql+asyncpg://agentscope:agentscope-local"
+    "@localhost:5432/agentscope"
+)
 
 
 async def migrate(source_url: str, target_url: str) -> None:
@@ -30,8 +38,7 @@ async def migrate(source_url: str, target_url: str) -> None:
         async with source_engine.begin() as conn:
             await conn.run_sync(meta.reflect)
         tables = [
-            t for name, t in meta.tables.items()
-            if name not in _SKIPPED_TABLES
+            t for name, t in meta.tables.items() if name not in _SKIPPED_TABLES
         ]
         if not tables:
             raise SystemExit("Source database has no tables to migrate.")
@@ -63,9 +70,15 @@ async def migrate(source_url: str, target_url: str) -> None:
                 if table.name in _SKIPPED_TABLES:
                     continue
                 async with source_engine.connect() as sconn:
-                    rows = (await sconn.execute(
-                        table.select(),
-                    )).mappings().all()
+                    rows = (
+                        (
+                            await sconn.execute(
+                                table.select(),
+                            )
+                        )
+                        .mappings()
+                        .all()
+                    )
                 if rows:
                     await tconn.execute(
                         table.insert(),
@@ -87,14 +100,13 @@ def main() -> None:
     )
     parser.add_argument(
         "--source",
-        default="sqlite+aiosqlite:///examples/agent_service/workspaces/agentscope.db",
+        default=_DEFAULT_SOURCE_URL,
         help="Source SQLAlchemy URL (default: the local SQLite file).",
     )
     parser.add_argument(
         "--target",
         required=True,
-        help="Target SQLAlchemy URL, e.g. "
-        "postgresql+asyncpg://agentscope:agentscope-local@localhost:5432/agentscope",
+        help="Target SQLAlchemy URL, e.g. " + _TARGET_EXAMPLE,
     )
     args = parser.parse_args()
     asyncio.run(migrate(args.source, args.target))

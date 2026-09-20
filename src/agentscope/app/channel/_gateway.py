@@ -20,7 +20,7 @@ import json
 from typing import TYPE_CHECKING
 
 from ..._logging import logger
-from ...message import DataBlock, HintBlock, TextBlock, UserMsg
+from ...message import DataBlock, HintBlock, Msg, TextBlock, UserMsg
 from ...permission import PermissionContext, PermissionMode
 from ...state import AgentState
 from .._bus_ops import enqueue_run_trigger
@@ -287,7 +287,11 @@ class ChannelGateway:
         buffered = [DataBlock.model_validate(p) for _id, p in entries]
         return [*buffered, *event.content]
 
-    async def _queue_when_busy(self, record: ChannelRecord, agent_id: str) -> bool:
+    async def _queue_when_busy(
+        self,
+        record: ChannelRecord,
+        agent_id: str,
+    ) -> bool:
         """Whether a message arriving while the session's run holds the
         lock should queue as its own next turn instead of being folded
         into the live run as a hint.
@@ -314,7 +318,7 @@ class ChannelGateway:
     async def _attach_waiting_card(
         self,
         event: ChannelEvent,
-        inputs: UserMsg,
+        inputs: Msg,
     ) -> None:
         """Give a queued message immediate feedback: ask the channel for
         a "waiting to run" placeholder card and pin it on the queued
@@ -327,7 +331,7 @@ class ChannelGateway:
 
         Args:
             event (`ChannelEvent`): The queued inbound event.
-            inputs (`UserMsg`): The queued payload; mutated in place to
+            inputs (`Msg`): The queued payload; mutated in place to
                 carry the waiting card under ``metadata["waiting_card"]``.
         """
         if self._channel_clients is None:

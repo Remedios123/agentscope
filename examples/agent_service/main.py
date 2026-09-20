@@ -43,9 +43,9 @@ class VolcengineCodingPlanCredential(
 
     model_config = ConfigDict(title="火山")
 
-    type: Literal["volcengine_coding_plan_credential"] = (
+    type: Literal[
         "volcengine_coding_plan_credential"
-    )
+    ] = "volcengine_coding_plan_credential"
     base_url: str = Field(
         default="https://ark.cn-beijing.volces.com/api/coding/v3",
         description="The OpenAI-compatible Ark Coding Plan base URL.",
@@ -56,6 +56,7 @@ class VolcengineCodingPlanCredential(
         "reasoning_effort",
         "voice",
     )
+
 
 default_mcps = [
     MCPClient(
@@ -98,11 +99,9 @@ else:
     # mysql+aiomysql://user:pass@localhost/agentscope (the asyncpg /
     # aiomysql driver is installed separately). Tables auto-create on
     # first start.
+    db_path = os.path.join(workspace_dir, "agentscope.db")
     storage = AsyncSQLAlchemyStorage(
-        os.getenv(
-            "AGENTSCOPE_SQL_URL",
-            f"sqlite+aiosqlite:///{os.path.join(workspace_dir, 'agentscope.db')}",
-        ),
+        os.getenv("AGENTSCOPE_SQL_URL", f"sqlite+aiosqlite:///{db_path}"),
     )
 
 vector_store = QdrantStore(location=":memory:")
