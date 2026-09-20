@@ -62,6 +62,29 @@ class InviteConfig(BaseModel):
         return self
 
 
+class ChannelMessageConfig(BaseModel):
+    """User-editable inbound-channel-message settings for :class:`AgentData`.
+
+    Kept in its own sub-model so the frontend's schema-driven form —
+    which renders any nested-object property as its own fieldset —
+    picks it up as a dedicated section (same pattern as
+    :class:`InviteConfig`).
+    """
+
+    busy_policy: Literal["inject", "queue"] = Field(
+        default="inject",
+        description=(
+            "What happens to a channel message that arrives while this "
+            "agent's session already has a run in flight. ``inject`` "
+            "folds it into the live run as a hint (the running reply "
+            "handles it inline); ``queue`` holds it until the current "
+            "run finishes and starts it as its own reply turn. Sessions "
+            "not reached via a channel are unaffected."
+        ),
+        title="Busy Policy",
+    )
+
+
 class AgentData(BaseModel):
     """The agent data model."""
 
@@ -106,6 +129,12 @@ class AgentData(BaseModel):
         default_factory=InviteConfig,
         description="The invite config for the agent.",
         title="Invite Config",
+    )
+
+    channel_message_config: ChannelMessageConfig = Field(
+        default_factory=ChannelMessageConfig,
+        description="How inbound channel messages are handled for the agent.",
+        title="Channel Message Config",
     )
 
 

@@ -38,6 +38,13 @@ export interface InviteConfig {
 	invite_description?: string | null;
 }
 
+/** How a channel message arriving mid-run is handled for this agent. */
+export type ChannelBusyPolicy = 'inject' | 'queue';
+
+export interface ChannelMessageConfig {
+	busy_policy?: ChannelBusyPolicy;
+}
+
 // ─── Agent ────────────────────────────────────────────────────────────────────
 
 export interface AgentData {
@@ -47,6 +54,7 @@ export interface AgentData {
 	context_config: ContextConfig;
 	react_config: ReActConfig;
 	invite_config: InviteConfig;
+	channel_message_config: ChannelMessageConfig;
 }
 
 export interface AgentView extends RecordBase {
@@ -65,6 +73,7 @@ export interface CreateAgentRequest {
 	context_config?: ContextConfig;
 	react_config?: ReActConfig;
 	invite_config?: InviteConfig;
+	channel_message_config?: ChannelMessageConfig;
 }
 
 export interface CreateAgentResponse {
@@ -77,6 +86,7 @@ export interface UpdateAgentRequest {
 	context_config?: ContextConfig;
 	react_config?: ReActConfig;
 	invite_config?: InviteConfig;
+	channel_message_config?: ChannelMessageConfig;
 }
 
 export interface AgentListResponse {

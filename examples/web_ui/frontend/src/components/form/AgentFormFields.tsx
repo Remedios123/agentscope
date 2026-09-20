@@ -10,7 +10,12 @@ import {
 	FieldSet,
 } from '@/components/ui/field';
 
-export type AgentSection = 'identity' | 'context_config' | 'react_config' | 'invite_config';
+export type AgentSection =
+	| 'identity'
+	| 'context_config'
+	| 'react_config'
+	| 'invite_config'
+	| 'channel_message_config';
 
 export type AgentFormValues = {
 	[K in AgentSection]: Record<string, SchemaFormValue>;
@@ -33,6 +38,7 @@ const NESTED_SECTIONS: Array<{ key: Exclude<AgentSection, 'identity'>; i18n: str
 	{ key: 'context_config', i18n: 'context-config' },
 	{ key: 'react_config', i18n: 'react-config' },
 	{ key: 'invite_config', i18n: 'invite-config' },
+	{ key: 'channel_message_config', i18n: 'channel-message-config' },
 ];
 
 const IDENTITY_I18N = 'identity';
@@ -71,6 +77,10 @@ function sliceSchema(root: JSONSchema): Record<AgentSection, JSONSchema> {
 			properties: {},
 		},
 		invite_config: (props.invite_config as JSONSchema) ?? {
+			type: 'object',
+			properties: {},
+		},
+		channel_message_config: (props.channel_message_config as JSONSchema) ?? {
 			type: 'object',
 			properties: {},
 		},
@@ -120,6 +130,11 @@ export function AgentFormFields({ schema, values, onChange }: Props) {
 										defaultValue: prop.description ?? '',
 									}) || undefined
 								}
+								optionLabelFor={(k, _prop, value) =>
+									t(`agent-form.${sectionI18n}.${toKebab(k)}.option.${value}`, {
+										defaultValue: '',
+									}) || undefined
+								}
 							/>
 						</FieldSet>
 					</div>
@@ -145,5 +160,6 @@ export function defaultAgentFormValues(schema: AgentSchemaV2Response): AgentForm
 		context_config: fromDefaults(sections.context_config),
 		react_config: fromDefaults(sections.react_config),
 		invite_config: fromDefaults(sections.invite_config),
+		channel_message_config: fromDefaults(sections.channel_message_config),
 	};
 }

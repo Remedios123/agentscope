@@ -2,7 +2,13 @@ import { CircleAlert, Loader2, Save } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import type { AgentView, ContextConfig, InviteConfig, ReActConfig } from '@/api';
+import type {
+	AgentView,
+	ChannelMessageConfig,
+	ContextConfig,
+	InviteConfig,
+	ReActConfig,
+} from '@/api';
 import {
 	AgentFormFields,
 	defaultAgentFormValues,
@@ -60,6 +66,10 @@ export function EditAgentDialog({ open, onOpenChange, agent, onUpdated }: Props)
 			context_config: { ...base.context_config, ...(d.context_config ?? {}) },
 			react_config: { ...base.react_config, ...(d.react_config ?? {}) },
 			invite_config: { ...base.invite_config, ...(d.invite_config ?? {}) },
+			channel_message_config: {
+				...base.channel_message_config,
+				...(d.channel_message_config ?? {}),
+			},
 		});
 		setErrorMsg('');
 	}, [open, schema, agent]);
@@ -86,6 +96,8 @@ export function EditAgentDialog({ open, onOpenChange, agent, onUpdated }: Props)
 					context_config: values.context_config as unknown as ContextConfig,
 					react_config: values.react_config as unknown as ReActConfig,
 					invite_config: values.invite_config as unknown as InviteConfig,
+					channel_message_config:
+						values.channel_message_config as unknown as ChannelMessageConfig,
 				},
 				{ silent: true },
 			);

@@ -33,6 +33,16 @@ interface Props {
 	labelFor?: (key: string, prop: JSONSchemaProperty) => string | undefined;
 	/** Optional override for a field's placeholder/description. */
 	placeholderFor?: (key: string, prop: JSONSchemaProperty) => string | undefined;
+	/** Optional override for an enum option's label. Falls back to the raw value. */
+	optionLabelFor?: (key: string, prop: JSONSchemaProperty, value: string) => string | undefined;
+	/** Optional full custom control for a field. Return a node to replace
+	 *  the default input/select/checkbox entirely. */
+	renderFor?: (
+		key: string,
+		prop: JSONSchemaProperty,
+		value: SchemaFormValue,
+		set: (v: SchemaFormValue) => void,
+	) => ReactNode | undefined;
 	/** Optional override for the helper text shown under a field. */
 	descriptionFor?: (key: string, prop: JSONSchemaProperty) => string | undefined;
 	/** Prefix for generated DOM IDs (so multiple SchemaForms on one page don't collide). */
@@ -87,6 +97,8 @@ export function SchemaForm({
 	skipFields = DEFAULT_SKIP_FIELDS,
 	labelFor,
 	placeholderFor,
+	optionLabelFor,
+	renderFor,
 	descriptionFor,
 	idPrefix = 'schema-form',
 	orientation = 'vertical',
@@ -140,6 +152,11 @@ export function SchemaForm({
 						</Field>
 					);
 
+				const customControl = renderFor?.(key, prop, current, (v) => onChange(key, v));
+				if (customControl !== undefined) {
+					return wrap(customControl);
+				}
+
 				if (isBoolean) {
 					return (
 						<Field key={key} orientation="horizontal">
@@ -164,13 +181,13 @@ export function SchemaForm({
 							<SelectTrigger id={fieldId} className="w-full">
 								<SelectValue placeholder={placeholder} />
 							</SelectTrigger>
-							<SelectContent>
-								{enumOpts.map((opt) => (
-									<SelectItem key={String(opt)} value={String(opt)}>
-										{String(opt)}
-									</SelectItem>
-								))}
-							</SelectContent>
+								<SelectContent>
+									{enumOpts.map((opt) => (
+										<SelectItem key={String(opt)} value={String(opt)}>
+											{optionLabelFor?.(key, prop, String(opt)) ?? String(opt)}
+										</SelectItem>
+									))}
+								</SelectContent>
 						</Select>,
 					);
 				}

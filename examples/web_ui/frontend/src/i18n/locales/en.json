@@ -216,6 +216,17 @@
 				"label": "Invite description",
 				"placeholder": "Briefly describe this agent's expertise; required when invitable is on."
 			}
+		},
+		"channel-message-config": {
+			"legend": "Channel Messages",
+			"description": "Controls how messages from channels (Feishu/DingTalk, etc.) are handled.",
+			"busy-policy": {
+				"label": "When a new message arrives mid-task",
+				"option": {
+					"inject": "Fold into the current reply",
+					"queue": "Queue as the next reply"
+				}
+			}
 		}
 	},
 	"dialog-agent-edit": {
@@ -850,5 +861,11 @@
 		"empty": "This folder is empty",
 		"pressEnter": "Press Enter to check this path first",
 		"gitTooltip": "{{staged}} staged · {{unstaged}} modified · {{untracked}} untracked\nLine counts exclude untracked files"
+	},
+	"model-list-editor": {
+		"add": "Add model",
+		"name-placeholder": "Model ID",
+		"label-placeholder": "Display name (optional)",
+		"remove": "Remove"
 	}
 }

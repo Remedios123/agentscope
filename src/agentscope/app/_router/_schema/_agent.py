@@ -5,7 +5,7 @@ import warnings
 from pydantic import BaseModel, Field
 
 from ....agent import ContextConfig, ReActConfig
-from ...storage import InviteConfig
+from ...storage import ChannelMessageConfig, InviteConfig
 from ..._service import AgentView
 
 
@@ -31,6 +31,15 @@ class CreateAgentRequest(BaseModel):
             "Invite-pool settings for this agent. See "
             ":class:`InviteConfig` — enforces the "
             "``invitable ⇒ non-empty description`` invariant."
+        ),
+    )
+    channel_message_config: ChannelMessageConfig = Field(
+        default_factory=ChannelMessageConfig,
+        description=(
+            "Inbound channel-message handling settings. See "
+            ":class:`ChannelMessageConfig` — controls whether a message "
+            "arriving mid-run is folded into the live reply or queued "
+            "as its own turn."
         ),
     )
 
@@ -66,6 +75,14 @@ class UpdateAgentRequest(BaseModel):
             "New invite-pool settings. Pass the full :class:`InviteConfig` "
             "object to update; omit to leave both invitable-related "
             "fields unchanged."
+        ),
+    )
+    channel_message_config: ChannelMessageConfig | None = Field(
+        default=None,
+        description=(
+            "New channel-message handling settings. Pass the full "
+            ":class:`ChannelMessageConfig` object to update; omit to "
+            "leave the busy policy unchanged."
         ),
     )
 

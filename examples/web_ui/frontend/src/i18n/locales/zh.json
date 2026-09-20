@@ -216,6 +216,17 @@
 				"label": "邀请说明",
 				"placeholder": "简要描述此智能体的专长；允许被邀请时必填。"
 			}
+		},
+		"channel-message-config": {
+			"legend": "渠道消息",
+			"description": "控制通过飞书/钉钉等渠道发来消息的处理方式。",
+			"busy-policy": {
+				"label": "任务进行中收到新消息时",
+				"option": {
+					"inject": "插入当前回复",
+					"queue": "排队，依次回复"
+				}
+			}
 		}
 	},
 	"dialog-agent-edit": {
@@ -850,5 +861,11 @@
 		"empty": "此文件夹为空",
 		"pressEnter": "先按回车校验该路径",
 		"gitTooltip": "{{staged}} 已暂存 · {{unstaged}} 已修改 · {{untracked}} 未跟踪\n行数不含未跟踪文件"
+	},
+	"model-list-editor": {
+		"add": "添加模型",
+		"name-placeholder": "模型 ID",
+		"label-placeholder": "显示名(可选)",
+		"remove": "删除"
 	}
 }

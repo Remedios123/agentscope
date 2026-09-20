@@ -36,6 +36,7 @@ from ._model import (
     UserRecord,
     TeamMember,
     InviteConfig,
+    ChannelMessageConfig,
 )
 
 if TYPE_CHECKING:
@@ -71,6 +72,7 @@ __all__ = [
     "AsyncSQLAlchemyStorage",
     # The ORM models
     "InviteConfig",
+    "ChannelMessageConfig",
     "AgentData",
     "AgentRecord",
     "ChannelBinding",
