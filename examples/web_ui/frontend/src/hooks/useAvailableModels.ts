@@ -31,7 +31,7 @@ export function useAvailableModels() {
 					if (!type) return;
 					if (!result[type]) result[type] = [];
 					try {
-						const { models } = await modelApi.list(type);
+						const { models } = await modelApi.list(type, credential.id);
 						result[type].push({ credential, models });
 					} catch {
 						result[type].push({ credential, models: [] });

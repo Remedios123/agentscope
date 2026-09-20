@@ -80,6 +80,21 @@ class CredentialBase(BaseModel):
         """
         return cls.get_chat_model_class().list_models()
 
+    def list_models_for(self) -> list["ModelCard"] | None:
+        """Return this credential *instance's* own model list, or
+        ``None`` to fall back to the packaged defaults served by
+        :meth:`list_models`.
+
+        Most providers share one static card list per credential type;
+        instance-specific lists (e.g. a custom endpoint whose models are
+        configured on the credential itself) override this.
+
+        Returns:
+            `list[ModelCard] | None`:
+                The instance's models, or ``None`` for the default.
+        """
+        return None
+
     @classmethod
     def get_embedding_model_class(cls) -> Type["EmbeddingModelBase"] | None:
         """Return the :class:`EmbeddingModelBase` subclass that consumes

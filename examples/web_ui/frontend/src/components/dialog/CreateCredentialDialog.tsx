@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 
 import { credentialApi } from '@/api';
 import type { CredentialSchema } from '@/api';
+import { modelListRenderFor } from '@/components/form/ModelListEditor';
 import { SchemaForm, type SchemaFormValue } from '@/components/form/SchemaForm';
 import { Button } from '@/components/ui/button';
 import {
@@ -121,11 +122,12 @@ export function CreateCredentialDialog({ open, onOpenChange, onCreated, defaultT
 						</Select>
 					</Field>
 					{selectedSchema && (
-						<SchemaForm
-							schema={selectedSchema}
-							values={values}
-							onChange={(key, val) => setValues((prev) => ({ ...prev, [key]: val }))}
-						/>
+					<SchemaForm
+						schema={selectedSchema}
+						values={values}
+						onChange={(key, val) => setValues((prev) => ({ ...prev, [key]: val }))}
+						renderFor={modelListRenderFor}
+					/>
 					)}
 				</FieldGroup>
 				<DialogFooter>

@@ -168,7 +168,8 @@ class OpenAIChatModel(ChatModelBase):
 
         self.client: openai.AsyncClient = openai.AsyncClient(
             api_key=self.credential.api_key.get_secret_value(),
-            organization=self.credential.organization,
+            # Custom credentials carry no organization; default to None.
+            organization=getattr(self.credential, "organization", None),
             base_url=self.credential.base_url,
             **self.client_kwargs,
         )

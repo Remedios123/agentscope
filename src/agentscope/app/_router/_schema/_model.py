@@ -19,3 +19,11 @@ class ListModelsRequest(BaseModel):
     provider: str = Field(
         description="The provider type, e.g. openai, dashscope, etc.",
     )
+    credential_id: str | None = Field(
+        default=None,
+        description=(
+            "Optional credential id. When given, the credential's own "
+            "model list wins over the provider's packaged defaults "
+            "(currently only the custom credential type carries one)."
+        ),
+    )

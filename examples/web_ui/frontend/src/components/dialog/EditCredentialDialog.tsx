@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 
 import { credentialApi } from '@/api';
 import type { CredentialView, CredentialSchema } from '@/api';
+import { modelListRenderFor } from '@/components/form/ModelListEditor';
 import { SchemaForm, type SchemaFormValue } from '@/components/form/SchemaForm';
 import { Button } from '@/components/ui/button';
 import {
@@ -92,6 +93,7 @@ export function EditCredentialDialog({ open, onOpenChange, credential, onUpdated
 						schema={schema}
 						values={values}
 						onChange={(key, val) => setValues((prev) => ({ ...prev, [key]: val }))}
+						renderFor={modelListRenderFor}
 					/>
 				) : null}
 				<DialogFooter>

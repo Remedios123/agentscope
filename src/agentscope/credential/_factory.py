@@ -11,6 +11,7 @@ from ._gemini import GeminiCredential
 from ._moonshot import MoonshotCredential
 from ._ollama import OllamaCredential
 from ._openai import OpenAICredential
+from ._custom import CustomCredential
 from ._xai import XAICredential
 from ._base import CredentialBase
 
@@ -42,6 +43,7 @@ class CredentialFactory:
         OllamaCredential,
         OpenAICredential,
         XAICredential,
+        CustomCredential,
     ]
     _adapter: TypeAdapter[CredentialBase] | None = None
 
