@@ -9,7 +9,7 @@ export default defineConfig({
 	plugins: [react(), tailwindcss(), svgr()],
 	server: {
 		proxy: {
-			'/api': 'http://localhost:3000',
+			'/api': process.env.AGENTSCOPE_WEB_BACKEND_URL ?? 'http://localhost:3000',
 		},
 	},
 	resolve: {

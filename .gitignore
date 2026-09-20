@@ -166,3 +166,7 @@ yarn-error.log*
 lerna-debug.log*
 
 **/workspaces/
+# Local assistant/browser artifacts and run logs
+.workbuddy/
+**/.playwright-mcp/
+logs/

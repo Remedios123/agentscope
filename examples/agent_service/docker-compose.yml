@@ -1,0 +1,41 @@
+# Local trial infra for agentscope: Redis (message bus) + PostgreSQL (storage).
+# Ports bind to 127.0.0.1 only — nothing here is reachable from the network.
+# The same file works unchanged on the server; change the passwords there.
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:6379:6379"
+    command: >
+      redis-server
+      --requirepass agentscope-local
+      --appendonly yes
+      --maxmemory 512mb
+      --maxmemory-policy noeviction
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a agentscope-local ping | grep PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_USER: agentscope
+      POSTGRES_PASSWORD: agentscope-local
+      POSTGRES_DB: agentscope
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentscope -d agentscope"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  redis-data:
+  postgres-data:

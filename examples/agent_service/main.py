@@ -2,10 +2,12 @@
 """The example script to start the agent service."""
 import os
 import sys
+from typing import ClassVar, Literal
 
 import uvicorn
 from fastapi.middleware import Middleware
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import ConfigDict, Field
 
 from agentscope.app import create_app, SubAgentTemplate
 from agentscope.app.channel import (
@@ -16,13 +18,44 @@ from agentscope.app.channel import (
 from agentscope.app.hub import ClawSkillHub, GitHubMCPHub
 from agentscope.app.message_bus import InMemoryMessageBus
 from agentscope.app.rag.knowledge_base_manager import CollectionPerKbManager
-from agentscope.app.storage import RedisStorage
+from agentscope.app.storage import AsyncSQLAlchemyStorage, RedisStorage
 from agentscope.app.workspace_manager import LocalWorkspaceManager
+from agentscope.credential import (
+    OpenAICredential,
+    SelfConfiguredModelsMixin,
+)
 from agentscope.mcp import MCPClient, StdioMCPConfig, HttpMCPConfig
 from agentscope.middleware import AgenticMemoryMiddleware, MiddlewareBase
 from agentscope.permission import PermissionContext, PermissionMode
 from agentscope.rag import ApproxTokenChunker, QdrantStore
 from agentscope.workspace import WorkspaceBase
+
+
+class VolcengineCodingPlanCredential(
+    SelfConfiguredModelsMixin,
+    OpenAICredential,
+):
+    """Volcengine Ark Coding Plan through its OpenAI-compatible API.
+
+    The available models are configured on the credential (one
+    ``model_id | display name`` per line) instead of a packaged catalog.
+    """
+
+    model_config = ConfigDict(title="火山")
+
+    type: Literal["volcengine_coding_plan_credential"] = (
+        "volcengine_coding_plan_credential"
+    )
+    base_url: str = Field(
+        default="https://ark.cn-beijing.volces.com/api/coding/v3",
+        description="The OpenAI-compatible Ark Coding Plan base URL.",
+    )
+
+    unsupported_parameters: ClassVar[tuple[str, ...]] = (
+        "thinking_enable",
+        "reasoning_effort",
+        "voice",
+    )
 
 default_mcps = [
     MCPClient(
@@ -47,10 +80,30 @@ if os.getenv("AMAP_API_KEY"):
         ),
     )
 
-storage = RedisStorage(
-    host="localhost",
-    port=6379,
+workspace_dir = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "workspaces",
 )
+os.makedirs(workspace_dir, exist_ok=True)
+
+if os.getenv("AGENTSCOPE_STORAGE", "sqlite").lower() == "redis":
+    storage = RedisStorage(
+        host="localhost",
+        port=6379,
+    )
+else:
+    # Relational storage. SQLite file by default; point
+    # AGENTSCOPE_SQL_URL at a server database for deployments that need
+    # one, e.g. postgresql+asyncpg://user:pass@localhost/agentscope or
+    # mysql+aiomysql://user:pass@localhost/agentscope (the asyncpg /
+    # aiomysql driver is installed separately). Tables auto-create on
+    # first start.
+    storage = AsyncSQLAlchemyStorage(
+        os.getenv(
+            "AGENTSCOPE_SQL_URL",
+            f"sqlite+aiosqlite:///{os.path.join(workspace_dir, 'agentscope.db')}",
+        ),
+    )
 
 vector_store = QdrantStore(location=":memory:")
 
@@ -72,23 +125,29 @@ async def longterm_memory_factory(
     ]
 
 
+# Message bus: in-memory by default (single process; queued run
+# triggers are lost on restart). Set AGENTSCOPE_BUS=redis to persist
+# queued triggers and share locks across processes/restarts — requires
+# a reachable Redis server and the `redis` package
+# (pip install "agentscope[storage-redis]"). Optional env vars:
+# AGENTSCOPE_REDIS_HOST / AGENTSCOPE_REDIS_PORT / AGENTSCOPE_REDIS_PASSWORD.
+if os.getenv("AGENTSCOPE_BUS", "memory").lower() == "redis":
+    from agentscope.app.message_bus import RedisMessageBus
+
+    message_bus = RedisMessageBus(
+        host=os.getenv("AGENTSCOPE_REDIS_HOST", "localhost"),
+        port=int(os.getenv("AGENTSCOPE_REDIS_PORT", "6379")),
+        password=os.getenv("AGENTSCOPE_REDIS_PASSWORD") or None,
+    )
+else:
+    message_bus = InMemoryMessageBus()
+
 app = create_app(
     storage=storage,
-    message_bus=InMemoryMessageBus(),
-    # -- To use a Redis-backed message bus instead (recommended for
-    # -- multi-process / production deployments), uncomment the lines
-    # -- below and replace the InMemoryMessageBus() above:
-    #
-    # from agentscope.app.message_bus import RedisMessageBus
-    # message_bus=RedisMessageBus(
-    #     host="localhost",
-    #     port=6379,
-    # ),
+    message_bus=message_bus,
+    extra_credentials=[VolcengineCodingPlanCredential],
     workspace_manager=LocalWorkspaceManager(
-        basedir=os.path.join(
-            os.path.dirname(os.path.abspath(__file__)),
-            "workspaces",
-        ),
+        basedir=workspace_dir,
         # The default MCP servers that will be added into the workspace
         default_mcps=default_mcps,
     ),
@@ -168,7 +227,7 @@ so anything you want them to see MUST be sent through `TeamSay`.""",
 if __name__ == "__main__":
     # Start the service
     uvicorn.run(
-        "main:app",
+        app if sys.platform == "win32" else "main:app",
         host="0.0.0.0",
         port=8000,
         # Hot reload forces a SelectorEventLoop on Windows, which cannot

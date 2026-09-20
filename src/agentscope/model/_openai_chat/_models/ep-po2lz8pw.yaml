@@ -1,0 +1,20 @@
+name: ep-po2lz8pw
+label: TokenHub (ep-po2lz8pw)
+status: active
+
+input_types:
+  - text/plain
+
+output_types:
+  - text/plain
+
+context_size: 128000
+output_size: 16384
+
+parameter_overrides:
+  thinking_enable:
+    hidden: true
+  reasoning_effort:
+    hidden: true
+  voice:
+    hidden: true
