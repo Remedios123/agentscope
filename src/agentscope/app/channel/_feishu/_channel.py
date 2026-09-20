@@ -32,6 +32,7 @@ from .._base import (
     ChannelStatus,
     ChatKind,
     _EVENT_ADAPTER,
+    _NO_TEXT_REPLY,
 )
 from ._credential_binding import FeishuCredentialBinding
 from ._card_templates import (
@@ -57,6 +58,11 @@ _MEDIA_TYPES = frozenset({"image", "audio", "media", "file"})
 _STREAM_ELEMENT_ID = "md"
 # Minimum seconds between live streaming-card updates (throttle).
 _STREAM_MIN_INTERVAL = 0.7
+# The animated "processing" ellipsis cycled on a fresh reply card until
+# the first real content push replaces it. One frame per PUT — the
+# interval stays well under the card-update rate limit.
+_DOT_FRAMES = ("·", "··", "···")
+_DOT_ANIMATOR_INTERVAL_SECS = 0.7
 
 
 class _ThreadLoopProxy:
@@ -666,43 +672,87 @@ class FeishuChannel(ChannelBase):
         """
         reply: Msg | None = None
         confirm: RequireUserConfirmEvent | None = None
-        ref: str | None = None
+        # A message queued while the session was busy pre-sent its own
+        # streaming card ("waiting…"); resume it instead of opening a
+        # fresh one, so waiting and answer share one message.
+        waiting: dict = event.metadata.get("waiting_card") or {}
+        ref: str | None = waiting.get("card_id")
+        if ref is not None:
+            self._stream_seq[ref] = int(waiting.get("seq", 1))
         failed = False
         last = 0.0
-        async for raw in events:
-            evt = _EVENT_ADAPTER.validate_python(raw)
-            if isinstance(evt, RequireUserConfirmEvent):
-                confirm = evt
-                break
-            reply_id = getattr(evt, "reply_id", None)
-            if reply_id is not None:
-                if reply is None:
-                    reply = Msg(name="assistant", role="assistant", content=[])
-                    reply.id = reply_id
-                reply.append_event(evt)
-            if isinstance(evt, ReplyEndEvent):
-                break
-            if failed or reply is None:
-                continue
-            rendered = self._render(
-                reply,
-                show_thinking=self._config.show_thinking,
-                show_tool_process=self._config.show_tool_process,
-            )
-            text = "".join(
-                b.text for b in rendered if isinstance(b, TextBlock)
-            )
-            if not text:
-                continue
-            if ref is None:
-                ref = await self._card_open(event)
-                if ref is None:
-                    failed = True
+        animator: asyncio.Task | None = None
+
+        async def _stop_dots() -> None:
+            """Stop the ellipsis animator; no frame lands after this."""
+            nonlocal animator
+            if animator is not None:
+                animator.cancel()
+                try:
+                    await animator
+                except asyncio.CancelledError:
+                    pass
+                animator = None
+
+        try:
+            async for raw in events:
+                evt = _EVENT_ADAPTER.validate_python(raw)
+                if isinstance(evt, RequireUserConfirmEvent):
+                    confirm = evt
+                    break
+                reply_id = getattr(evt, "reply_id", None)
+                if reply_id is not None:
+                    if reply is None:
+                        reply = Msg(
+                            name="assistant",
+                            role="assistant",
+                            content=[],
+                        )
+                        reply.id = reply_id
+                    reply.append_event(evt)
+                # Fresh-task ack: open the streaming card the moment the
+                # run starts producing a reply and cycle an animated
+                # ellipsis on it, so an executing task responds as fast
+                # as a queued one instead of staying silent until the
+                # first token. Feishu's streaming mode adds its native
+                # generating animation; the first real content push
+                # replaces the dots.
+                if reply is not None and ref is None and not failed:
+                    ref = await self._card_open(event)
+                    if ref is not None:
+                        animator = self._start_dot_animator(ref)
+                if isinstance(evt, ReplyEndEvent):
+                    break
+                if failed or reply is None:
                     continue
-            now = time.monotonic()
-            if now - last >= _STREAM_MIN_INTERVAL:
-                last = now
-                await self._card_push(ref, text)
+                rendered = self._render(
+                    reply,
+                    show_thinking=self._config.show_thinking,
+                    show_tool_process=self._config.show_tool_process,
+                )
+                text = "".join(
+                    b.text for b in rendered if isinstance(b, TextBlock)
+                )
+                # Skip the "no content" placeholder so it neither flashes
+                # into a fresh card nor overwrites a waiting card's queued
+                # text before real content arrives.
+                if not text or text == _NO_TEXT_REPLY:
+                    continue
+                if ref is None:
+                    ref = await self._card_open(event)
+                    if ref is None:
+                        failed = True
+                        continue
+                now = time.monotonic()
+                if now - last >= _STREAM_MIN_INTERVAL:
+                    last = now
+                    # The animator writes the same element; it must not
+                    # race this content push with a frame.
+                    await _stop_dots()
+                    await self._card_push(ref, text)
+            await _stop_dots()
+        finally:
+            await _stop_dots()
         blocks = self._render(
             reply,
             show_thinking=self._config.show_thinking,
@@ -825,6 +875,32 @@ class FeishuChannel(ChannelBase):
             {"content": text, "sequence": seq},
         )
 
+    def _start_dot_animator(self, card_id: str) -> asyncio.Task | None:
+        """Cycle the animated processing ellipsis on a reply card.
+
+        The task keeps pushing frames until cancelled — the first real
+        content push (or the reply ending) stops it, so a frame can
+        never overwrite streamed content.
+
+        Args:
+            card_id (`str`): The streaming card to animate.
+
+        Returns:
+            `asyncio.Task | None`: The animator task.
+        """
+
+        async def _run() -> None:
+            index = 0
+            while True:
+                await self._card_push(
+                    card_id,
+                    _DOT_FRAMES[index % len(_DOT_FRAMES)],
+                )
+                index += 1
+                await asyncio.sleep(_DOT_ANIMATOR_INTERVAL_SECS)
+
+        return asyncio.create_task(_run(), name=f"card-dots:{card_id}")
+
     async def _close_stream(self, card_id: str) -> None:
         """End streaming mode so the card stops showing "generating…".
 
@@ -912,6 +988,26 @@ class FeishuChannel(ChannelBase):
             f"{_API}/im/v1/messages/{event.channel_message_id}"
             f"/reactions/{reaction_id}",
         )
+
+    async def send_waiting_card(self, event: ChannelEvent) -> dict | None:
+        """Send the queued-message placeholder as a streaming card whose
+        content announces the wait; the resuming run replaces it.
+
+        Args:
+            event (`ChannelEvent`): The queued inbound event.
+
+        Returns:
+            `dict | None`: ``{"card_id": ..., "seq": ...}`` for the reply
+            path to reuse, or ``None`` when the card could not be created.
+        """
+        ref = await self._card_open(event)
+        if ref is None:
+            return None
+        await self._card_push(
+            ref,
+            "⏳ 当前有任务正在处理,该请求已排队;开始执行后,结果将直接输出在这条消息里。",
+        )
+        return {"card_id": ref, "seq": self._stream_seq.get(ref, 1)}
 
     async def list_bot_chats(self) -> list[dict]:
         """List the chats the bot is in as ``{chat_id, name, chat_type}``."""

@@ -1025,11 +1025,22 @@ class ChatService:
                 and session_record.source_chat_id
                 and self._channel_clients is not None
             ):
+                # A message queued while the session was busy carries the
+                # placeholder card it showed the sender; stream this
+                # run's reply into that same card. Non-Msg inputs
+                # (confirmations, wakes) carry no card and open a fresh
+                # one as usual.
+                waiting_card = (
+                    input_msg.metadata.get("waiting_card")
+                    if isinstance(input_msg, Msg)
+                    else None
+                )
                 await self._channel_clients.deliver(
                     session_id=session_id,
                     channel_id=session_record.source_channel_id,
                     chat_id=session_record.source_chat_id,
                     agent_id=agent_id,
+                    waiting_card=waiting_card,
                 )
             reply_msg: Msg | None = None
             reply_msgs: list[Msg] = []

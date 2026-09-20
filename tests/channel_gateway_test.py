@@ -19,6 +19,7 @@ from agentscope.app.channel._base import (
     _EVENT_ADAPTER,
 )
 from agentscope.app.channel._gateway import ChannelGateway
+from agentscope.app.channel._routing import resolve
 from agentscope.message import Msg, ToolCallBlock, ToolCallState
 from agentscope.state import AgentState
 from agentscope.app.message_bus import InMemoryMessageBus
@@ -520,6 +521,253 @@ class ChatNameRecordingTest(IsolatedAsyncioTestCase):
         upsert = await self._upsert("")
 
         self.assertIsNone(upsert["source_chat_name"])
+
+
+class _BusyPolicyStorage:
+    """Storage stub returning the channel record and a stub agent whose
+    ``channel_message_config.busy_policy`` is configurable."""
+
+    def __init__(self, record: ChannelRecord, busy_policy: str | None) -> None:
+        self._record = record
+        self._busy_policy = busy_policy
+
+    async def get_channel(self, channel_id: str) -> ChannelRecord:
+        del channel_id
+        return self._record
+
+    async def get_agent(self, user_id: str, agent_id: str) -> Any:
+        del user_id, agent_id
+        if self._busy_policy is None:
+            return None
+        return SimpleNamespace(
+            data=SimpleNamespace(
+                channel_message_config=SimpleNamespace(
+                    busy_policy=self._busy_policy,
+                ),
+            ),
+        )
+
+
+class _StubChannelClients:
+    """ChannelClients stub serving one fake channel that records
+    waiting-card requests (the gateway's queued-message feedback)."""
+
+    def __init__(self) -> None:
+        self.waiting_requests: list[str] = []
+
+    async def get(self, channel_id: str) -> Any:
+        del channel_id
+        return _WaitingChannel(self.waiting_requests)
+
+
+class _WaitingChannel:
+    """Minimal channel stub exposing only the waiting-card surface."""
+
+    def __init__(self, requests: list[str]) -> None:
+        self._requests = requests
+
+    async def send_waiting_card(self, event: Any) -> dict:
+        self._requests.append(event.chat_id)
+        return {"card_id": "card-1", "seq": 1}
+
+
+class BusyPolicyTest(IsolatedAsyncioTestCase):
+    """A message arriving while the session run holds the lock is either
+    queued as its own turn or injected as a hint, per the agent's
+    ``channel_message_config.busy_policy``."""
+
+    async def _handle_locked(
+        self,
+        busy_policy: str | None,
+        channel_clients: Any = None,
+    ) -> tuple[InMemoryMessageBus, str]:
+        """Run the gateway's message path under a held session lock.
+
+        Args:
+            busy_policy (`str | None`): The stub agent's policy, or
+                ``None`` for no agent record at all.
+            channel_clients (`Any`): Optional channel client factory for
+                the waiting-card feedback.
+
+        Returns:
+            `tuple[InMemoryMessageBus, str]`: The bus and the derived
+            session id, for draining the queues.
+        """
+        record = _channel_record("user-1")
+        event = ChannelEvent(
+            channel_id="chan-1",
+            channel_user_id="u",
+            chat_id="c",
+            content=[TextBlock(text="second request")],
+        )
+        _agent_id, session_id, _scope = resolve(event, record)
+        bus = InMemoryMessageBus()
+        gw = ChannelGateway(
+            storage=_BusyPolicyStorage(record, busy_policy),
+            message_bus=bus,
+            workspace_manager=_WM(isolation=IsolationPolicy.PER_AGENT),
+            channel_clients=channel_clients,
+        )
+        async with bus.acquire_lock(MessageBusKeys.session_lock(session_id)):
+            await gw._handle_message(event)
+        return bus, session_id
+
+    async def test_queue_policy_enqueues_message_trigger(self) -> None:
+        clients = _StubChannelClients()
+        bus, session_id = await self._handle_locked("queue", clients)
+
+        queued = await bus.queue_drain(MessageBusKeys.wakeup_queue())
+        self.assertEqual(len(queued), 1)
+        payload = queued[0][1]
+        self.assertEqual(payload["kind"], MessageBusKeys.WAKEUP_KIND_MESSAGE)
+        self.assertEqual(payload["session_id"], session_id)
+        self.assertIsNotNone(payload["input"])
+        self.assertEqual(
+            await bus.queue_drain(MessageBusKeys.inbox(session_id)),
+            [],
+        )
+        # The queued message got its waiting card, pinned on the input
+        # so the run streams the reply into that same card.
+        self.assertEqual(clients.waiting_requests, ["c"])
+        self.assertEqual(
+            payload["input"]["metadata"]["waiting_card"],
+            {"card_id": "card-1", "seq": 1},
+        )
+
+    async def test_inject_policy_pushes_hint_without_trigger(self) -> None:
+        clients = _StubChannelClients()
+        bus, session_id = await self._handle_locked("inject", clients)
+
+        self.assertEqual(
+            await bus.queue_drain(MessageBusKeys.wakeup_queue()),
+            [],
+        )
+        inbox = await bus.queue_drain(MessageBusKeys.inbox(session_id))
+        self.assertEqual(len(inbox), 1)
+        self.assertIn("hint", inbox[0][1])
+        # Injected messages fold into the live run; no waiting card.
+        self.assertEqual(clients.waiting_requests, [])
+
+    async def test_missing_agent_record_falls_back_to_inject(self) -> None:
+        bus, session_id = await self._handle_locked(None)
+
+        self.assertEqual(
+            await bus.queue_drain(MessageBusKeys.wakeup_queue()),
+            [],
+        )
+        inbox = await bus.queue_drain(MessageBusKeys.inbox(session_id))
+        self.assertEqual(len(inbox), 1)
+
+
+class WaitingCardResumeTest(IsolatedAsyncioTestCase):
+    """A reply for a queued message streams into the waiting card the
+    message showed, instead of opening a fresh one."""
+
+    async def test_reply_reuses_waiting_card(self) -> None:
+        from agentscope.app.channel._feishu._channel import FeishuChannel
+
+        channel = FeishuChannel(
+            "c",
+            FeishuChannel.Credentials(app_id="a", app_secret="s"),
+            FeishuChannel.Config(),
+        )
+        pushes: list[tuple[str, str]] = []
+        closed: list[str] = []
+        opened: list[str] = []
+
+        async def _fake_open(event: Any) -> str | None:
+            opened.append(event.chat_id)
+            return None
+
+        async def _fake_push(card_id: str, text: str) -> None:
+            pushes.append((card_id, text))
+
+        async def _fake_close(card_id: str) -> None:
+            closed.append(card_id)
+
+        setattr(channel, "_card_open", _fake_open)
+        setattr(channel, "_card_push", _fake_push)
+        setattr(channel, "_close_stream", _fake_close)
+
+        event = ChannelEvent(
+            channel_id="chan-1",
+            channel_user_id="",
+            chat_id="chat-1",
+            metadata={"waiting_card": {"card_id": "card-1", "seq": 3}},
+        )
+        await channel.send_response(
+            event,
+            _aiter(
+                [
+                    ReplyStartEvent(session_id="s", reply_id=_RID, name="a"),
+                    *_text_blocks("Hello"),
+                    ReplyEndEvent(session_id="s", reply_id=_RID),
+                ],
+            ),
+        )
+
+        # The waiting card was resumed (no fresh card opened), pushed at
+        # its recorded sequence, and closed at the end.
+        self.assertEqual(opened, [])
+        self.assertEqual(pushes, [("card-1", "Hello"), ("card-1", "Hello")])
+        self.assertEqual(closed, ["card-1"])
+
+    async def test_no_waiting_card_opens_fresh(self) -> None:
+        from agentscope.app.channel._feishu._channel import FeishuChannel
+
+        channel = FeishuChannel(
+            "c",
+            FeishuChannel.Credentials(app_id="a", app_secret="s"),
+            FeishuChannel.Config(),
+        )
+        pushes: list[tuple[str, str]] = []
+        closed: list[str] = []
+        opened: list[str] = []
+        animated: list[str] = []
+
+        async def _fake_open(event: Any) -> str | None:
+            opened.append(event.chat_id)
+            return "fresh-card"
+
+        def _fake_start(card_id: str) -> None:
+            animated.append(card_id)
+
+        async def _fake_push(card_id: str, text: str) -> None:
+            pushes.append((card_id, text))
+
+        async def _fake_close(card_id: str) -> None:
+            pass
+
+        setattr(channel, "_card_open", _fake_open)
+        setattr(channel, "_start_dot_animator", _fake_start)
+        setattr(channel, "_card_push", _fake_push)
+        setattr(channel, "_close_stream", _fake_close)
+
+        event = ChannelEvent(
+            channel_id="chan-1",
+            channel_user_id="",
+            chat_id="chat-1",
+        )
+        await channel.send_response(
+            event,
+            _aiter(
+                [
+                    ReplyStartEvent(session_id="s", reply_id=_RID, name="a"),
+                    *_text_blocks("Hello"),
+                    ReplyEndEvent(session_id="s", reply_id=_RID),
+                ],
+            ),
+        )
+
+        self.assertEqual(opened, ["chat-1"])
+        # The card opened at ReplyStart and the animated ellipsis was
+        # started on it; the streamed text then replaced the frames.
+        self.assertEqual(opened, ["chat-1"])
+        self.assertEqual(animated, ["fresh-card"])
+        self.assertEqual(
+            pushes,
+            [("fresh-card", "Hello"), ("fresh-card", "Hello")],
+        )
 
 
 class DecisionRoutingTest(IsolatedAsyncioTestCase):

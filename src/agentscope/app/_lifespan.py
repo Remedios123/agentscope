@@ -156,6 +156,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                         storage=storage,
                         message_bus=message_bus,
                         workspace_manager=workspace_manager,
+                        channel_clients=channel_clients,
                     ),
                 )
         app.state.channel_clients = channel_clients

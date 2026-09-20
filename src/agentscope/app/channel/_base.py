@@ -426,6 +426,31 @@ class ChannelBase(ABC):
             reaction_id (`str`): The id returned by :meth:`send_reaction`.
         """
 
+    async def send_waiting_card(  # pylint: disable=unused-argument
+        self,
+        event: ChannelEvent,
+    ) -> dict | None:
+        """Send a "queued — waiting to run" placeholder for a message that
+        arrived while the session's run holds the lock, so the sender sees
+        immediate feedback instead of silence.
+
+        When the queued turn eventually runs, the reply is streamed into
+        this same placeholder (the gateway pins the returned card on the
+        queued input; :meth:`send_response` picks it up from the event
+        metadata and reuses the card).
+
+        Args:
+            event (`ChannelEvent`): The queued inbound event.
+
+        Returns:
+            `dict | None`: ``{"card_id": ..., "seq": ...}`` identifying
+            the placeholder — ``seq`` being the card's last written
+            sequence so the resuming run continues it monotonically —
+            or ``None`` when unsupported (the queued turn then replies
+            as a fresh message, as before).
+        """
+        return None
+
     # -- Optional management-UI helpers --
 
     async def list_bot_chats(self) -> list[dict]:

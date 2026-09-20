@@ -17,6 +17,7 @@ the reply back — so scheduled / background runs reach the channel too,
 not just inbound messages.
 """
 import json
+from typing import TYPE_CHECKING
 
 from ..._logging import logger
 from ...message import DataBlock, HintBlock, TextBlock, UserMsg
@@ -37,6 +38,9 @@ from ._base import ChannelEvent, ChannelConfirmationResultEvent
 from ._decision import resume_after_decision
 from ._routing import resolve
 
+if TYPE_CHECKING:
+    from ._clients import ChannelClients
+
 # How long a media-only message waits for its accompanying text message.
 _MEDIA_BUFFER_TTL_SECS = 300
 # Max buffered attachments carried into one text message.
@@ -51,6 +55,7 @@ class ChannelGateway:
         storage: StorageBase,
         message_bus: MessageBus,
         workspace_manager: WorkspaceManagerBase,
+        channel_clients: "ChannelClients | None" = None,
     ) -> None:
         """Bind storage, the message bus, and the workspace manager.
 
@@ -59,10 +64,15 @@ class ChannelGateway:
             message_bus (`MessageBus`): Application message bus.
             workspace_manager (`WorkspaceManagerBase`): Assigns each
                 derived session its workspace under the isolation policy.
+            channel_clients (`ChannelClients | None`): REST client
+                factory for outbound feedback (the queued-message
+                waiting card). Optional — when absent, queued messages
+                simply get no placeholder card.
         """
         self._storage = storage
         self._bus = message_bus
         self._workspace_manager = workspace_manager
+        self._channel_clients = channel_clients
 
     async def process(
         self,
@@ -202,23 +212,38 @@ class ChannelGateway:
         if content is None:
             return  # media buffered; nothing to run until a text message
 
-        # A reply already in flight → inject the input as a hint so the
-        # live run folds it in. Otherwise start a fresh user turn.
+        # A reply already in flight → per the bound agent's busy policy,
+        # either queue this input as its own next turn (the dispatcher
+        # re-queues the trigger until the lock frees) or inject it as a
+        # hint so the live run folds it in. Otherwise start a fresh user
+        # turn.
         if await self._bus.is_locked(MessageBusKeys.session_lock(session_id)):
-            await self._bus.queue_push(
-                MessageBusKeys.inbox(session_id),
-                HintBlock(
-                    hint=content,
-                    source=json.dumps(
-                        {
-                            "label": "channel",
-                            "sublabel": event.channel_user_name
-                            or event.channel_user_id,
-                        },
-                        ensure_ascii=False,
-                    ),
-                ).model_dump(mode="json"),
-            )
+            if await self._queue_when_busy(record, agent_id):
+                inputs = UserMsg(name=event.channel_user_id, content=content)
+                await self._attach_waiting_card(event, inputs)
+                await enqueue_run_trigger(
+                    self._bus,
+                    user_id=record.user_id,
+                    session_id=session_id,
+                    agent_id=agent_id,
+                    kind=MessageBusKeys.WAKEUP_KIND_MESSAGE,
+                    inputs=inputs,
+                )
+            else:
+                await self._bus.queue_push(
+                    MessageBusKeys.inbox(session_id),
+                    HintBlock(
+                        hint=content,
+                        source=json.dumps(
+                            {
+                                "label": "channel",
+                                "sublabel": event.channel_user_name
+                                or event.channel_user_id,
+                            },
+                            ensure_ascii=False,
+                        ),
+                    ).model_dump(mode="json"),
+                )
             return
 
         await self._ensure_session(record, agent_id, session_id, event, scope)
@@ -261,6 +286,66 @@ class ChannelGateway:
         entries = await self._bus.queue_drain(key, max_count=_MEDIA_BUFFER_MAX)
         buffered = [DataBlock.model_validate(p) for _id, p in entries]
         return [*buffered, *event.content]
+
+    async def _queue_when_busy(self, record: ChannelRecord, agent_id: str) -> bool:
+        """Whether a message arriving while the session's run holds the
+        lock should queue as its own next turn instead of being folded
+        into the live run as a hint.
+
+        Reads the bound agent's ``channel_message_config.busy_policy``.
+        Unreadable cases (agent record missing — e.g. a cross-owner
+        shared agent, which this gateway cannot resolve without the
+        permission policy — or an old record persisted before the field
+        existed) fall back to the model default ``"inject"``, i.e.
+        today's behaviour.
+
+        Args:
+            record (`ChannelRecord`): The owning channel record.
+            agent_id (`str`): The agent the event resolved to.
+
+        Returns:
+            `bool`: ``True`` to queue, ``False`` to inject.
+        """
+        agent = await self._storage.get_agent(record.user_id, agent_id)
+        if agent is None:
+            return False
+        return agent.data.channel_message_config.busy_policy == "queue"
+
+    async def _attach_waiting_card(
+        self,
+        event: ChannelEvent,
+        inputs: UserMsg,
+    ) -> None:
+        """Give a queued message immediate feedback: ask the channel for
+        a "waiting to run" placeholder card and pin it on the queued
+        input, so the run that eventually picks this message up streams
+        its reply into that same card.
+
+        Best-effort by design — no client wired, an unsupported platform
+        (base default) or a card failure all degrade to the plain queued
+        behaviour of replying as a fresh message later.
+
+        Args:
+            event (`ChannelEvent`): The queued inbound event.
+            inputs (`UserMsg`): The queued payload; mutated in place to
+                carry the waiting card under ``metadata["waiting_card"]``.
+        """
+        if self._channel_clients is None:
+            return
+        try:
+            channel = await self._channel_clients.get(event.channel_id)
+            if channel is None:
+                return
+            card = await channel.send_waiting_card(event)
+        except Exception:  # pylint: disable=broad-except
+            logger.warning(
+                "channel '%s': waiting card for the queued message failed",
+                event.channel_id,
+                exc_info=True,
+            )
+            return
+        if card:
+            inputs.metadata["waiting_card"] = card
 
     # -- Session creation (deterministic id, idempotent) --
 

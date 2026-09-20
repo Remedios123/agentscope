@@ -161,6 +161,7 @@ class ChannelClients:
         channel_id: str,
         chat_id: str,
         agent_id: str,
+        waiting_card: dict | None = None,
     ) -> None:
         """Start streaming a run's reply back to its platform chat.
 
@@ -175,6 +176,11 @@ class ChannelClients:
             chat_id (`str`): The platform chat to deliver into.
             agent_id (`str`): The agent that owns the session; pinned on
                 a confirmation card so a click resumes this exact run.
+            waiting_card (`dict | None`): ``{"card_id": ..., "seq": ...}``
+                of the placeholder card a queued message showed while
+                waiting; the reply streams into that same card instead
+                of opening a fresh one. ``None`` (or an unsupported
+                platform) opens a fresh card as usual.
         """
         channel = await self.get(channel_id)
         if channel is None:
@@ -195,6 +201,8 @@ class ChannelClients:
             chat_id=chat_id,
             metadata={"session_id": session_id, "agent_id": agent_id},
         )
+        if waiting_card:
+            target.metadata["waiting_card"] = waiting_card
 
         # Subscribe before returning: the caller is about to run the
         # agent, and the run drops its event log when it persists, so a
