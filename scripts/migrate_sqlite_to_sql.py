@@ -20,7 +20,7 @@ from datetime import date as _date
 from datetime import datetime as _datetime
 
 import sqlalchemy.types as satypes
-from sqlalchemy import Date, DateTime, LargeBinary, MetaData, Text, Time
+from sqlalchemy import Date, DateTime, LargeBinary, MetaData, Text, Time, func, select
 from sqlalchemy.ext.asyncio import create_async_engine
 
 # Internal bookkeeping table — not business data.
@@ -106,7 +106,11 @@ async def migrate(source_url: str, target_url: str) -> None:
         # Safety: refuse a target that already holds data.
         for table in tables:
             async with target_engine.connect() as conn:
-                count = (await conn.execute(table.count())).scalar_one()
+                count = (
+                    await conn.execute(
+                        select(func.count()).select_from(table),
+                    )
+                ).scalar_one()
             if count:
                 raise SystemExit(
                     f"Target table '{table.name}' already has {count} "
