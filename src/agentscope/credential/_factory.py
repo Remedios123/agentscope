@@ -62,13 +62,19 @@ class CredentialFactory:
         """Register a custom :class:`CredentialBase` subclass.
 
         The class must define a ``type`` field with a unique ``Literal``
-        default so Pydantic can use it as a discriminator.
+        default so Pydantic can use it as a discriminator. Registration
+        is idempotent per ``type`` value: a module that executes twice
+        (e.g. imported as ``__main__`` and re-imported by name) produces
+        distinct class objects with the same discriminator, which would
+        otherwise break the discriminated union.
 
         Args:
             credential_cls: The subclass to register.
         """
-        if credential_cls in cls._classes:
-            return
+        incoming_type = credential_cls.model_fields["type"].default
+        for existing in cls._classes:
+            if existing.model_fields["type"].default == incoming_type:
+                return
         cls._classes.append(credential_cls)
         cls._adapter = None  # invalidate so it's rebuilt on next use
 

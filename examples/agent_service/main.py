@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """The example script to start the agent service."""
 import os
-import sys
 from typing import TYPE_CHECKING, ClassVar, Literal, Type
 
 import uvicorn
@@ -239,12 +238,11 @@ so anything you want them to see MUST be sent through `TeamSay`.""",
 
 
 if __name__ == "__main__":
-    # Start the service
+    # Start the service. Pass the app OBJECT — the "main:app" string form
+    # re-imports this module, running create_app a second time and
+    # double-registering credentials into the discriminated union.
     uvicorn.run(
-        app if sys.platform == "win32" else "main:app",
-        host="0.0.0.0",
+        app,
+        host="127.0.0.1",
         port=8000,
-        # Hot reload forces a SelectorEventLoop on Windows, which cannot
-        # spawn the subprocesses that the builtin tools rely on
-        reload=sys.platform != "win32",
     )
