@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from ..model import ChatModelBase, ModelCard
 
 
-class SelfConfiguredModelsMixin(CredentialBase):
+class SelfConfiguredModelsMixin(CredentialBase):  # pylint: disable=W0223
     """Adds a user-configured model list to a credential.
 
     Unlike built-in providers — whose candidate models come from the

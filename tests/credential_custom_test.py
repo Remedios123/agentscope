@@ -18,13 +18,13 @@ class CustomCredentialTest(unittest.TestCase):
 
     def test_models_text_parses_to_cards(self) -> None:
         credential = self._credential(
-            "ep-abc | TokenHub Main\n"
-            "\n"
-            "  ep-def  |  备用模型  \n"
-            "ep-ghi\n",
+            "ep-abc | TokenHub Main\n\n  ep-def  |  备用模型  \nep-ghi\n",
         )
         cards = credential.list_models_for()
-        self.assertEqual([c.name for c in cards], ["ep-abc", "ep-def", "ep-ghi"])
+        self.assertEqual(
+            [c.name for c in cards],
+            ["ep-abc", "ep-def", "ep-ghi"],
+        )
         self.assertEqual(
             [c.label for c in cards],
             ["TokenHub Main", "备用模型", "ep-ghi"],

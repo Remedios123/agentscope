@@ -721,7 +721,6 @@ class WaitingCardResumeTest(IsolatedAsyncioTestCase):
             FeishuChannel.Config(),
         )
         pushes: list[tuple[str, str]] = []
-        closed: list[str] = []
         opened: list[str] = []
         animated: list[str] = []
 
