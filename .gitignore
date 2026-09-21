@@ -170,3 +170,7 @@ lerna-debug.log*
 .workbuddy/
 **/.playwright-mcp/
 logs/
+
+# 本机专用的隧道脚本(含服务器 IP,不入库)
+/tunnel.cmd
+/scripts/tunnel.ps1
