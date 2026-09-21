@@ -121,6 +121,7 @@ async def migrate(source_url: str, target_url: str) -> None:
             async with target_engine.connect() as conn:
                 count = (
                     await conn.execute(
+                        # pylint: disable-next=not-callable
                         select(func.count()).select_from(table),
                     )
                 ).scalar_one()

@@ -2,7 +2,7 @@
 """The example script to start the agent service."""
 import os
 import sys
-from typing import ClassVar, Literal
+from typing import TYPE_CHECKING, ClassVar, Literal, Type
 
 import uvicorn
 from fastapi.middleware import Middleware
@@ -29,6 +29,9 @@ from agentscope.middleware import AgenticMemoryMiddleware, MiddlewareBase
 from agentscope.permission import PermissionContext, PermissionMode
 from agentscope.rag import ApproxTokenChunker, QdrantStore
 from agentscope.workspace import WorkspaceBase
+
+if TYPE_CHECKING:
+    from agentscope.model import OpenAIChatModel
 
 
 class VolcengineCodingPlanCredential(
@@ -57,7 +60,7 @@ class VolcengineCodingPlanCredential(
     )
 
     @classmethod
-    def get_chat_model_class(cls):
+    def get_chat_model_class(cls) -> Type["OpenAIChatModel"]:
         """Return the OpenAI-compatible chat model class."""
         from agentscope.model import OpenAIChatModel
 
