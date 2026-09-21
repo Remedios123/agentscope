@@ -7,7 +7,7 @@ from typing import ClassVar, Literal
 import uvicorn
 from fastapi.middleware import Middleware
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, SecretStr
 
 from agentscope.app import create_app, SubAgentTemplate
 from agentscope.app.channel import (
@@ -21,7 +21,7 @@ from agentscope.app.rag.knowledge_base_manager import CollectionPerKbManager
 from agentscope.app.storage import AsyncSQLAlchemyStorage, RedisStorage
 from agentscope.app.workspace_manager import LocalWorkspaceManager
 from agentscope.credential import (
-    OpenAICredential,
+    CredentialBase,
     SelfConfiguredModelsMixin,
 )
 from agentscope.mcp import MCPClient, StdioMCPConfig, HttpMCPConfig
@@ -33,12 +33,14 @@ from agentscope.workspace import WorkspaceBase
 
 class VolcengineCodingPlanCredential(
     SelfConfiguredModelsMixin,
-    OpenAICredential,
+    CredentialBase,
 ):
     """Volcengine Ark Coding Plan through its OpenAI-compatible API.
 
     The available models are configured on the credential (one
     ``model_id | display name`` per line) instead of a packaged catalog.
+    Stands alone (not a subclass of ``OpenAICredential``): a
+    discriminated-union member must not be a subclass of another member.
     """
 
     model_config = ConfigDict(title="火山")
@@ -46,10 +48,20 @@ class VolcengineCodingPlanCredential(
     type: Literal[
         "volcengine_coding_plan_credential"
     ] = "volcengine_coding_plan_credential"
+    api_key: SecretStr = Field(
+        description="The Ark Coding Plan API key.",
+    )
     base_url: str = Field(
         default="https://ark.cn-beijing.volces.com/api/coding/v3",
         description="The OpenAI-compatible Ark Coding Plan base URL.",
     )
+
+    @classmethod
+    def get_chat_model_class(cls):
+        """Return the OpenAI-compatible chat model class."""
+        from agentscope.model import OpenAIChatModel
+
+        return OpenAIChatModel
 
     unsupported_parameters: ClassVar[tuple[str, ...]] = (
         "thinking_enable",
